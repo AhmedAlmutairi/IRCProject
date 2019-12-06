@@ -35,6 +35,7 @@ class Ircserver:
 		except Exception as e:
 			return False
 
+	#Processing all clients comands 
 	def cmd_message(self, cmd, chan_name, s):
 		client = self.client_info[s]
 		user = client['data'].decode('utf-8')
@@ -47,8 +48,6 @@ class Ircserver:
 			if user not in self.channels[chnl]:
 				chan_clients = {chan_name: [user]}
 				self.channels[chnl].append(user)
-				for key in self.channels.keys():
-					print("keys are : {}".format(key)) 
 				for c in self.channels.keys():
 					print('channel users: {}'.format(self.channels))
 				response = 'you joined channel ' + chnl
@@ -169,7 +168,7 @@ class Ircserver:
 							clt.send(client['header'] + client['data'] + chnl_header + from_chnl + message_header + message)
 
 
-
+	#read new sockts connection and distrubutes messages and commands
 	def read_write_sockets(self):
 		self.socket.bind((self.host, self.port))
 		self.socket.listen()
