@@ -30,13 +30,10 @@ class Ircserver:
 	def messages(self, c_sockets):
 		try:
 			header = c_sockets.recv(1024)
-			#if not len(header):
-			#	return False
 			messsage_length = int(header.decode('utf-8').strip())
 			return {'header': header, 'data': c_sockets.recv(messsage_length)}
 		except Exception as e:
-			print('Error {}'.format(e))
-			sys.exit()
+			return False
 
 	def cmd_message(self, cmd, chan_name, s):
 		client = self.client_info[s]
@@ -76,14 +73,20 @@ class Ircserver:
 			users = []
 			chnl = chan_name.decode('utf-8')
 			if not chnl.startswith('#'):
-				chnl = '#' + chnl
-			for u in self.channels[chnl]:
-				users.append(u)
-			user_list = ', '
-			user_list = user_list.join(users)
-			user_list = user_list.encode('utf-8')
-			message_header = f"{len(user_list) :< {1024}}".encode('utf-8')
-			s.send(message_header + user_list)
+					chnl = '#' + chnl
+			if chnl not in self.channels.keys():
+				response = chnl + ' is not found'
+				response = response.encode('utf-8')
+				message_header = f"{len(response) :< {1024}}".encode('utf-8')
+				s.send(message_header + response)
+			else:
+				for u in self.channels[chnl]:
+					users.append(u)
+				user_list = ', '
+				user_list = user_list.join(users)
+				user_list = user_list.encode('utf-8')
+				message_header = f"{len(user_list) :< {1024}}".encode('utf-8')
+				s.send(message_header + user_list)
 		elif cmd == '/listchannels':
 			channels = []
 			for u in self.channels.keys():
@@ -108,16 +111,41 @@ class Ircserver:
 				response = response.encode('utf-8')
 				message_header = f"{len(response) :< {1024}}".encode('utf-8')
 				s.send(message_header + response)
-				print('message sent')
+		elif cmd == '/privmsg':
+			client = self.client_info[s]
+			user = chan_name[0]
+			str_msg = []
+			user = user.decode('utf-8')
+			msg = chan_name[1:]
+			for i in msg:
+				str_msg.append(i.decode('utf-8'))
+			message = ' '
+			message = message.join(str_msg)
+			message_header = f"{len(message) :< {1024}}".encode('utf-8')
+			message = message.encode('utf-8')
+			response = 'A private message from'
+			response_header = f"{len(response) :< {1024}}".encode('utf-8')
+			response = response.encode('utf-8')
+			for clt in self.client_info:
+				username = self.client_info[clt]
+				username = username['data']
+				if username.decode('utf-8') == user:
+							clt.send(response_header + response + client['header'] + client['data'] + message_header + message)
 
+	#send message to clients with a channel	
 	def send_message_to(self, chnl, msg, s):
 		client = self.client_info[s]
 		str_msg = []
 		chnl = chnl.decode('utf-8')
 		if not chnl.startswith('#'):
 			chnl = '#' + chnl
-		if client['data'].decode('utf-8') not in self.channels[chnl]:
-			response = 'you have to join ' + chnl + 'before sending message to it'
+		if chnl not in self.channels.keys():
+			response = chnl + ' is not found'
+			response = response.encode('utf-8')
+			message_header = f"{len(response) :< {1024}}".encode('utf-8')
+			s.send(message_header + response)
+		elif client['data'].decode('utf-8') not in self.channels[chnl]:
+			response = 'you have to join ' + chnl + ' before sending message to it'
 			response = response.encode('utf-8')
 			message_header = f"{len(response) :< {1024}}".encode('utf-8')
 			s.send(message_header + response)
@@ -129,15 +157,13 @@ class Ircserver:
 			message_header = f"{len(message) :< {1024}}".encode('utf-8')
 			message = message.encode('utf-8')
 
-			from_chnl = chnl.encode('utf-8')
-			chnl_header = f"{len(chnl) :< {1024}}".encode('utf-8')
-			read_sockets, write_sockets, exception_sockets = select.select(self.sockets, [], self.sockets)
-			for clt in read_sockets:
+			from_chnl = 'from channel: ' + chnl
+			from_chnl = from_chnl.encode('utf-8')
+			chnl_header = f"{len(from_chnl) :< {1024}}".encode('utf-8')
+			for clt in self.client_info:
 				username = self.client_info[clt]
 				username = username['data']
-				print('i am here {}'.format(username.decode('utf-8')))
 				if clt != s:
-					print('i am here {}'.format(username.decode('utf-8')))
 					for u_n_c in self.channels[chnl]:
 						if username.decode('utf-8') == u_n_c:
 							clt.send(client['header'] + client['data'] + chnl_header + from_chnl + message_header + message)
@@ -159,7 +185,10 @@ class Ircserver:
 					user_data = self.messages(connection)
 					if user_data is False:
 						print("user is false")
-						sys.exit()
+						self.sockets.remove(s)
+						#delete client information
+						del self.client_info[s]
+						continue
 
 					else:
 						#add new client's socket to the list of sockets
@@ -174,16 +203,24 @@ class Ircserver:
 					#recieve message from existed client and send it to message function
 					client_messages = self.messages(s)
 					#print("client messages {}".format(client_messages))
-					'''if client_messages is False:
+					if client_messages is False:
+						username = self.client_info[s]
+						username = username['data'].decode('utf-8')
 						print('close connection from {}'.format(self.client_info[s]['data'].decode('utf-8')))
+						for chan in self.channels.keys():
+							for usr in self.channels[chan]:
+								if usr == username:
+									self.channels[chan].remove(usr)
+									print('channel users: {}'.format(self.channels))
 						#remove client from socket list
 						self.sockets.remove(s)
 						#delete client information
 						del self.client_info[s]
-						continue '''
+						continue
 					user_data = self.client_info[s]
 					slt = client_messages['data'].split()
 					cmd = slt[0].decode('utf-8')
+
 					_ = ''
 					if cmd == '/join':
 						if len(slt) < 2:
@@ -203,6 +240,7 @@ class Ircserver:
 							self.cmd_message(cmd, slt[1], s)
 					elif cmd == '/list':
 						self.cmd_message(cmd, _, s)
+
 					elif cmd == '/usrnchan':
 						if len(slt) < 2:
 							response = 'please provide channel name you want to list its users'
@@ -221,7 +259,23 @@ class Ircserver:
 							s.send(message_header + response)
 						else:
 							self.send_message_to(slt[1], slt[2:], s)
+					elif cmd == '/privmsg':
+						if len(slt) < 2:
+							response = 'please provide user nickname'
+							response = response.encode('utf-8')
+							message_header = f"{len(response) :< {1024}}".encode('utf-8')
+							s.send(message_header + response)
+						else:
+							self.cmd_message(cmd, slt[1:], s)
 					elif cmd == '/quit':
+						username = self.client_info[s]
+						username = username['data'].decode('utf-8')
+						print(username)
+						for chan in self.channels.keys():
+							for usr in self.channels[chan]:
+								if usr == username:
+									self.channels[chan].remove(usr)
+									print('channel users: {}'.format(self.channels))
 						response = 'Goodbye ' + user_data['data'].decode('utf-8')
 						response = response.encode('utf-8')
 						message_header = f"{len(response) :< {1024}}".encode('utf-8')
@@ -230,24 +284,10 @@ class Ircserver:
 						del self.client_info[s]
 						s.close()
 
-
-
-					else:
-						print('recieved message from client {}: {}'.format(user_data['data'].decode('utf-8'), client_messages['data'].decode('utf-8')))
-
-						#send message to all clients
-						for client in self.client_info:
-							#send message to all client except the sender
-							if client != s:
-								client.send(user_data['header'] + user_data['data'] + client_messages['header'] + client_messages['data'])
-
 			#remove all error sockets
 			for s in exception_sockets:
 				self.sockets.remove(s)
 				del self.client_info[s]
-
-	def list_of_client(self, lst):
-		print('CLients connected now: {}'.format(lst))
 	
 if __name__ == '__main__':
     server = Ircserver()
